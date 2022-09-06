@@ -4,18 +4,15 @@ mod rust_core;
 use rust_core::*;
 
 mod il2cpp;
-
-const CONN_NAME: &str = "qemu";
-const KRNL_NAME: &str = "win32";
-
+extern crate lazy_static;
 fn main() {
     env_logger::init();
 
     let inventory = Inventory::scan();
     let mut os = inventory
         .builder()
-        .connector(CONN_NAME)
-        .os(KRNL_NAME)
+        .connector(core::CONN_NAME)
+        .os(core::KRNL_NAME)
         .build()
         .expect("unable to instantiate connector / os");
 

@@ -1063,6 +1063,7 @@ dependencies = [
  "min-max",
  "num-derive",
  "num-traits",
+ "regex",
  "strfmt",
 ]
 

@@ -4,8 +4,9 @@ use log::{debug, warn};
 use memflow::prelude::v1::{Address, MemoryView, ModuleInfo, Pointer, Process};
 use regex::Regex;
 
-const ASSEMBLY_TABLE: u64 = 0x2F765E8;
-const CLASS_TABLE: u64 = 0x2F760B8;
+const ASSEMBLY_TABLE: u64 = 0x2F8E628;
+const ASSEMBLY_TABLE_END: u64 = ASSEMBLY_TABLE + 8;
+const CLASS_TABLE: u64 = 0x2F8E128;
 
 // ^(static)?(?:.*\.)?(\w+)\.(\w+)$
 
@@ -217,12 +218,11 @@ impl GameAssembly {
         let mut images = HashMap::new();
 
         let mut begin: u64 = 0;
-        let mut end: u64 = 0;
         process
             .read_ptr_into(Pointer::from(module.base + ASSEMBLY_TABLE), &mut begin)
             .expect("unable to read beginning of assembly table");
-        process
-            .read_ptr_into(Pointer::from(module.base + ASSEMBLY_TABLE + 8), &mut end)
+        let end = process
+            .read::<u64>(module.base + ASSEMBLY_TABLE_END)
             .expect("unable to read ending of assembly table");
         println!(
             "assemblies begin @ {:x} ( {:x} + {:x} )",
@@ -253,7 +253,7 @@ impl GameAssembly {
                                 process,
                             ) {
                                 Some(image) => {
-                                    warn!("found image {}", name);
+                                    debug!("found image {}", name);
                                     images.insert(name, image);
                                 }
                                 _ => {}
@@ -312,7 +312,10 @@ impl GameAssembly {
             Some(captures) => {
                 let (kw_assembly, kw_static, kw_class, kw_field) = (
                     captures.get(1).unwrap().as_str(),
-                    captures.get(2).unwrap().as_str(),
+                    match captures.get(2) {
+                        Some(c) => c.as_str(),
+                        None => "",
+                    },
                     captures.get(3).unwrap().as_str(),
                     captures.get(4).unwrap().as_str(),
                 );
