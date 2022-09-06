@@ -3,6 +3,7 @@ use memflow::prelude::v1::*;
 mod rust_core;
 use rust_core::*;
 
+use crate::rust_core::core::sdk;
 mod il2cpp;
 extern crate lazy_static;
 fn main() {
@@ -11,8 +12,8 @@ fn main() {
     let inventory = Inventory::scan();
     let mut os = inventory
         .builder()
-        .connector(core::CONN_NAME)
-        .os(core::KRNL_NAME)
+        .connector(sdk::CONN_NAME)
+        .os(sdk::KRNL_NAME)
         .build()
         .expect("unable to instantiate connector / os");
 
