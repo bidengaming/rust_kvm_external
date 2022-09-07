@@ -12,6 +12,7 @@ pub struct Il2CppClass {
     fields_size: u32,
     fields_table: u64,
     static_fields_table: u64,
+    pub instance: u64,
 }
 
 impl Il2CppClass {
@@ -38,14 +39,14 @@ impl Il2CppClass {
         0
     }
 
-    pub fn get_static_field_value<P: MemoryView + Process>(
+    pub fn get_static_field_address<P: MemoryView + Process>(
         &self,
         process: &mut P,
         field_to_find: String,
     ) -> u64 {
         let current_field_key = self.get_field_offset(process, field_to_find);
-        if current_field_key < 0 {
-            return 0 as u64;
+        if current_field_key < 0u32 {
+            return 0_u64;
         }
 
         self.static_fields_table + current_field_key as u64
@@ -59,9 +60,10 @@ impl Il2CppClass {
         let static_fields_table = process.read::<u64>(Address::from(instance + 0xB8)).unwrap();
 
         Self {
-            fields_table: fields_table,
-            static_fields_table: static_fields_table,
-            fields_size: fields_size,
+            fields_table,
+            static_fields_table,
+            fields_size,
+            instance,
         }
     }
 }
@@ -143,8 +145,8 @@ impl Il2Cpp {
         }
 
         Self {
-            assemblies_end: assemblies_end,
-            images: images,
+            assemblies_end,
+            images,
         }
     }
 }
