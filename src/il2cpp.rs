@@ -1,392 +1,150 @@
-use hashbrown::HashMap;
-use lazy_static::*;
-use log::{debug, warn};
-use memflow::prelude::v1::{Address, MemoryView, ModuleInfo, Pointer, Process};
-use regex::Regex;
+use memflow::prelude::v1::*;
+use std::collections::HashMap;
 
 const ASSEMBLY_TABLE: u64 = 0x2F8E628;
 const ASSEMBLY_TABLE_END: u64 = ASSEMBLY_TABLE + 8;
 const CLASS_TABLE: u64 = 0x2F8E128;
 
-// ^(static)?(?:.*\.)?(\w+)\.(\w+)$
+pub const CONN_NAME: &str = "qemu";
+pub const KRNL_NAME: &str = "win32";
 
-pub struct Class {
-    pub instance: Address,
-    pub index: u32,
-    pub fields_size: u16,
-    pub fields_table: u64,
-    pub static_fields_table: u64,
-    pub key_values: HashMap<String, i32>,
-    pub key_value_types: HashMap<String, u64>,
-    pub key_value_static: HashMap<String, bool>,
+pub struct Il2CppClass {
+    fields_size: u32,
+    fields_table: u64,
+    static_fields_table: u64,
 }
 
-impl Class {
-    pub fn populate<P: MemoryView + Process>(
-        class_name: &str,
+impl Il2CppClass {
+    pub fn get_field_offset<P: MemoryView + Process>(
+        &self,
         process: &mut P,
-        table: u64,
-        size: u16,
-        container: &mut HashMap<String, i32>,
-        type_container: &mut HashMap<String, u64>,
-        static_mapping: &mut HashMap<String, bool>,
-    ) {
-        let mut cursor = table;
-        let end = table + size as u64 * 0x20;
-        while cursor < end {
-            let mut string_ptr: u64 = 0;
-            let mut value: i32 = 0;
-            let mut type_ptr: u64 = 0;
-            match (
-                process.read_ptr_into(Pointer::from(cursor), &mut string_ptr),
-                process.read_ptr_into(Pointer::from(cursor + 0x8), &mut type_ptr),
-                process.read_char_string(Address::from(string_ptr)),
-                process.read_ptr_into(Pointer::from(cursor + 0x18), &mut value),
-            ) {
-                (Ok(_), Ok(_), Ok(name), Ok(_)) => {
-                    let mut flags: u32 = 0;
-                    match (
-                        process.read_ptr_into(Pointer::from(type_ptr + 0x8), &mut flags),
-                        process.read_ptr_into(Pointer::from(type_ptr), &mut type_ptr),
-                    ) {
-                        (Ok(_), Ok(_)) => {
-                            debug!(
-                                "{}::{} @ {:x} (tag {:x} = {:x}",
-                                class_name, name, cursor, type_ptr, value
-                            );
-                            type_container.insert(name.clone(), type_ptr);
-                            let is_static = (flags & 0x10) != 0;
-                            static_mapping.insert(name.clone(), is_static);
-                        }
-                        _ => {
-                            debug!(
-                                "`ANONYMOUS` {}::{} @ {:x} = {:x}",
-                                class_name, name, cursor, value
-                            );
-                        }
-                    }
-                    //if name.contains("cloneDestroyedMessage") {
-                    //debug!("@ {:x}", cursor);
-                    //loop {}
-                    //}
-                    container.insert(name, value);
-                }
-                _ => {}
+        field_to_find: String,
+    ) -> u32 {
+        let mut current_field = self.fields_table;
+        while current_field < self.fields_table + (self.fields_size * 0x20) as u64 {
+            let unk = process.read::<u64>(Address::from(current_field)).unwrap();
+
+            let field_name = process.read_char_string(Address::from(unk)).unwrap();
+            if field_name == field_to_find {
+                let offset = process
+                    .read::<u32>(Address::from(current_field + 0x18))
+                    .unwrap();
+                return offset;
             }
-            cursor += 0x20;
+
+            current_field += 0x20;
         }
+
+        0
     }
 
-    pub fn new<P: MemoryView + Process>(
-        i: u32,
-        name: &str,
-        _base: u64,
-        instance: u64,
+    pub fn get_static_field_value<P: MemoryView + Process>(
+        &self,
         process: &mut P,
-    ) -> Option<Self> {
-        let mut field_size: u16 = 0;
-        let mut field_table: u64 = 0;
-        let mut static_field_table: u64 = 0;
+        field_to_find: String,
+    ) -> u64 {
+        let current_field_key = self.get_field_offset(process, field_to_find);
+        if current_field_key < 0 {
+            return 0 as u64;
+        }
 
-        match (
-            process.read_ptr_into(Pointer::from(instance + 0x11C), &mut field_size),
-            process.read_ptr_into(Pointer::from(instance + 0x80), &mut field_table),
-            process.read_ptr_into(Pointer::from(instance + 0xB8), &mut static_field_table),
-        ) {
-            (Ok(_), Ok(_), Ok(_)) => {
-                let mut kv = HashMap::new(); // key values
-                let mut kvt = HashMap::new(); // key value types
-                let mut kvs = HashMap::new(); // key value types
-                Self::populate(
-                    name,
-                    process,
-                    field_table,
-                    field_size,
-                    &mut kv,
-                    &mut kvt,
-                    &mut kvs,
-                );
-                if field_size > 0 {
-                    debug!("counting {} fields in class {}", field_size, name);
-                }
-                Some(Self {
-                    instance: Address::from(instance),
-                    index: i,
-                    fields_size: field_size,
-                    fields_table: field_table,
-                    static_fields_table: static_field_table,
-                    key_values: kv,
-                    key_value_types: kvt,
-                    key_value_static: kvs,
-                })
-            }
-            _ => None,
-        }
-    }
-    pub fn field(&self, key: &str) -> Option<u64> {
-        match self.key_values.get(key) {
-            Some(value) => Some(self.instance.to_umem() + *value as u64),
-            None => None,
-        }
+        self.static_fields_table + current_field_key as u64
     }
 
-    pub fn static_field(&self, key: &str) -> Option<u64> {
-        match self.key_values.get(key) {
-            Some(value) => Some(self.static_fields_table + *value as u64),
-            None => None,
+    pub fn new<P: MemoryView + Process>(process: &mut P, instance: u64) -> Self {
+        let fields_size = process
+            .read::<u32>(Address::from(instance + 0x11C))
+            .unwrap();
+        let fields_table = process.read::<u64>(Address::from(instance + 0x80)).unwrap();
+        let static_fields_table = process.read::<u64>(Address::from(instance + 0xB8)).unwrap();
+
+        Self {
+            fields_table: fields_table,
+            static_fields_table: static_fields_table,
+            fields_size: fields_size,
         }
     }
 }
-
-pub struct Image {
-    pub instance: Address,
-    pub classes: HashMap<String, Class>,
-    pub start_index: u32,
-    pub end_index: u32,
+pub struct Il2CppImage {
+    pub classes: HashMap<String, Il2CppClass>,
 }
 
-impl Image {
-    pub fn new<P: MemoryView + Process>(
-        name: &str,
-        base: u64,
-        instance: u64,
-        process: &mut P,
-    ) -> Option<Self> {
-        let mut class_table: u64 = 0;
-        let mut class_size: u32 = 0;
-        let mut class_start: u32 = 0;
-
+impl Il2CppImage {
+    pub fn new<P: MemoryView + Process>(process: &mut P, instance: u64, class_table: &u64) -> Self {
         let mut classes = HashMap::new();
 
-        match (
-            process.read_ptr_into(Pointer::from(base + CLASS_TABLE), &mut class_table),
-            process.read_ptr_into(Pointer::from(instance + 0x1C), &mut class_size),
-            process.read_ptr_into(Pointer::from(instance + 0x18), &mut class_start),
-        ) {
-            (Ok(_), Ok(_), Ok(_)) => {
-                for i in 0..class_size {
-                    let index = i + class_start;
-                    let mut cursor: u64 = 0;
-                    let mut string_ptr: u64 = 0;
-                    match (
-                        process.read_ptr_into(
-                            Pointer::from(class_table + index as u64 * 8),
-                            &mut cursor,
-                        ),
-                        process.read_ptr_into(Pointer::from(cursor + 0x10), &mut string_ptr),
-                        process.read_char_string(Address::from(string_ptr)),
-                    ) {
-                        (Ok(_), Ok(_), Ok(name)) => {
-                            match Class::new(i, name.as_str(), base, cursor, process) {
-                                Some(class) => {
-                                    classes.insert(name, class);
-                                }
-                                None => {}
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                debug!("counting {} classes in {}", classes.len(), name);
-                Some(Self {
-                    instance: Address::from(instance),
-                    classes,
-                    start_index: class_start,
-                    end_index: class_start + class_size,
-                })
-            }
-            _ => None,
+        let classes_size = process.read::<u32>(Address::from(instance + 0x1C)).unwrap();
+        let class_table_idx_start = process.read::<u32>(Address::from(instance + 0x18)).unwrap();
+        for i in 0..classes_size {
+            let current_class = process
+                .read::<u64>(Address::from(
+                    class_table + ((i + class_table_idx_start) * 8) as u64,
+                ))
+                .unwrap();
+
+            let unk = process
+                .read::<u64>(Address::from(current_class + 0x10))
+                .unwrap();
+            let class_name = process.read_char_string(Address::from(unk)).unwrap();
+            classes.insert(class_name, Il2CppClass::new(process, current_class));
         }
-    }
-
-    pub fn class(&self, name: &str) -> Option<&Class> {
-        self.classes.get(name)
+        Self { classes }
     }
 }
 
-pub struct GameAssembly {
-    pub module: ModuleInfo,
-    pub images: HashMap<String, Image>,
+pub struct Il2Cpp {
+    pub assemblies_end: u64,
+    pub images: HashMap<String, Il2CppImage>,
 }
 
-impl GameAssembly {
+impl Il2Cpp {
     pub fn new<P: MemoryView + Process>(process: &mut P) -> Self {
-        let module = process
-            .module_by_name("GameAssembly.dll")
-            .expect("GameAssembly.dll not found");
-        println!("GameAssembly.dll @ {:x}", module.base);
         let mut images = HashMap::new();
+        let game_assembly = process.module_by_name("GameAssembly.dll").unwrap();
 
-        let mut begin: u64 = 0;
-        process
-            .read_ptr_into(Pointer::from(module.base + ASSEMBLY_TABLE), &mut begin)
-            .expect("unable to read beginning of assembly table");
-        let end = process
-            .read::<u64>(module.base + ASSEMBLY_TABLE_END)
-            .expect("unable to read ending of assembly table");
-        println!(
-            "assemblies begin @ {:x} ( {:x} + {:x} )",
-            begin, module.base, ASSEMBLY_TABLE
-        );
-        println!("assemblies end @ {:x}", end);
+        let assemblies_end = process
+            .read::<u64>(game_assembly.base + ASSEMBLY_TABLE_END)
+            .unwrap();
 
-        let mut cursor = begin;
-        while cursor < end {
-            let mut string_ptr: u64 = 0;
-            let mut instance_ptr: u64 = 0;
+        let mut current_assembly: u64 = process
+            .read::<u64>(game_assembly.base + ASSEMBLY_TABLE)
+            .unwrap();
 
-            match (
-                process.read_ptr_into(Pointer::from(cursor), &mut instance_ptr),
-                process.read_ptr_into(Pointer::from(instance_ptr + 0x18), &mut string_ptr),
-                process.read_ptr_into(Pointer::from(instance_ptr), &mut instance_ptr),
-            ) {
-                (Ok(_), Ok(_), Ok(_)) => {
-                    match (
-                        process.read_char_string(Address::from(string_ptr)),
-                        instance_ptr != 0,
-                    ) {
-                        (Ok(name), true) => {
-                            match Image::new(
-                                name.as_str(),
-                                module.base.to_umem(),
-                                instance_ptr,
-                                process,
-                            ) {
-                                Some(image) => {
-                                    debug!("found image {}", name);
-                                    images.insert(name, image);
-                                }
-                                _ => {}
-                            }
-                        }
-                        (Err(_), true) => {
-                            let iname = format!("{}", instance_ptr);
-                            warn!("found anonymous image {} @ {:x}", iname, cursor);
-                            match Image::new(
-                                iname.as_str(),
-                                module.base.to_umem(),
-                                instance_ptr,
-                                process,
-                            ) {
-                                Some(image) => {
-                                    images.insert(iname, image);
-                                }
-                                _ => {}
-                            }
-                        }
+        let class_table: u64 = process
+            .read::<u64>(game_assembly.base + CLASS_TABLE)
+            .unwrap();
 
-                        _ => {
-                            warn!(
-                                "unable to read instance of image {:x} @ {:x}",
-                                instance_ptr, cursor
-                            );
-                        }
-                    }
-                }
-                _ => {
-                    warn!(
-                        "unable to read instance of image {:x} @ {:x}",
-                        instance_ptr, cursor
-                    );
-                }
-            }
+        let inventory = Inventory::scan();
+        let mut os = inventory
+            .builder()
+            .connector(CONN_NAME)
+            .os(KRNL_NAME)
+            .build()
+            .expect("unable to instantiate connector / os");
 
-            cursor += 8;
+        let mut _process = os.process_by_name("RustClient.exe").unwrap();
+
+        while current_assembly < assemblies_end {
+            let unk = process
+                .read::<u64>(Address::from(current_assembly))
+                .unwrap();
+
+            let unk1 = process.read::<u64>(Address::from(unk + 0x18)).unwrap();
+
+            let unk2 = process.read::<u64>(Address::from(unk)).unwrap();
+
+            let image_name = process.read_char_string(Address::from(unk1)).unwrap();
+
+            images.insert(
+                image_name,
+                Il2CppImage::new(&mut _process, unk2, &class_table),
+            );
+            current_assembly += 8;
         }
 
-        debug!("counting {} images in GameAssembly.dll", images.len());
-
-        Self { module, images }
-    }
-
-    pub fn image(&self, name: &str) -> Option<&Image> {
-        self.images.get(name)
-    }
-
-    pub fn fast(&self, name: &str) -> Option<u64> {
-        lazy_static! {
-            static ref FIELD_QUERY: Regex =
-                Regex::new(r"^([^:]+):\s*(static)?\s*(\w+).(\w+)$").unwrap();
+        Self {
+            assemblies_end: assemblies_end,
+            images: images,
         }
-        match FIELD_QUERY.captures(name) {
-            Some(captures) => {
-                let (kw_assembly, kw_static, kw_class, kw_field) = (
-                    captures.get(1).unwrap().as_str(),
-                    match captures.get(2) {
-                        Some(c) => c.as_str(),
-                        None => "",
-                    },
-                    captures.get(3).unwrap().as_str(),
-                    captures.get(4).unwrap().as_str(),
-                );
-                match self.image(kw_assembly) {
-                    Some(image) => match image.class(kw_class) {
-                        Some(class) => {
-                            if kw_static.eq("static") {
-                                return class.static_field(kw_field);
-                            } else {
-                                return class.field(kw_field);
-                            }
-                        }
-                        None => None,
-                    },
-                    None => None,
-                }
-            }
-            None => {
-                warn!("unknown specification \"{}\", follow those examples:", name);
-                warn!("[IMAGE]:[CLASS].[FIELD]");
-                warn!("[IMAGE]:static [CLASS].[FIELD]");
-                warn!("where you replace the square brackets with their respective name");
-                None
-            }
-        }
-    }
-
-    pub fn resolve(&self, name: &str) -> Option<u64> {
-        lazy_static! {
-            static ref FIELD_QUERY: Regex =
-                Regex::new(r"^(static)?(?:.*\.)?(\w+)\.(\w+)$").unwrap();
-        }
-        match FIELD_QUERY.captures(name) {
-            Some(captures) => {
-                let (kw_static, kw_class, kw_field) = (
-                    captures.get(1).unwrap().as_str(),
-                    captures.get(2).unwrap().as_str(),
-                    captures.get(3).unwrap().as_str(),
-                );
-                debug!("QUERYING CLASS {}::{}", kw_class, kw_field);
-                for (image_name, content) in &self.images {
-                    match content.class(kw_class) {
-                        Some(class) => {
-                            debug!(
-                                "found class of \"{}\" in {} ({} fields)",
-                                name,
-                                image_name,
-                                class.key_values.len()
-                            );
-                            for (name, off) in class.key_values.iter() {
-                                debug!("{}::{} @ {:x}", kw_class, name, off);
-                            }
-                            if kw_static.eq("static") {
-                                return class.static_field(kw_field);
-                            } else {
-                                return class.field(kw_field);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                None
-            }
-            None => {
-                warn!("unknown specification \"{}\", follow those examples:", name);
-                warn!("[NAMESPACE].[CLASS].[FIELD]");
-                warn!("static [NAMESPACE].[CLASS].[FIELD]");
-                warn!("where you replace the square brackets with their respective name");
-                None
-            }
-        }
-        // ^(static)?(?:.*\.)?(\w+)\.(\w+)$
     }
 }

@@ -12,8 +12,8 @@ fn main() {
     let inventory = Inventory::scan();
     let mut os = inventory
         .builder()
-        .connector(sdk::CONN_NAME)
-        .os(sdk::KRNL_NAME)
+        .connector(il2cpp::CONN_NAME)
+        .os(il2cpp::KRNL_NAME)
         .build()
         .expect("unable to instantiate connector / os");
 
