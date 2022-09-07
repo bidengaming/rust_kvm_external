@@ -1,5 +1,7 @@
 use memflow::prelude::v1::*;
 
+use sdk::*;
+
 pub mod sdk;
 
 pub struct RustCore<P, K> {
@@ -13,9 +15,6 @@ impl<P: Process + MemoryView, K: Keyboard> RustCore<P, K> {
     }
 
     pub fn update(&mut self) {
-        let health_offset = (*sdk::GAME_ASSEMBLY)
-            .fast("Assembly-CSharp:static BaseCombatEntity._health")
-            .expect("Failed to find BasePlayer");
         let assembly_csharp = (*sdk::GAME_ASSEMBLY)
             .image("Assembly-CSharp")
             .expect("Failed to find Assembly-CSharp");
@@ -29,15 +28,23 @@ impl<P: Process + MemoryView, K: Keyboard> RustCore<P, K> {
                 .process
                 .read::<u64>(Address::from(local_player_class.instance.to_umem() + 0xB8))
                 .unwrap();
+            if local_player_static_fields < 0 as u64 {
+                continue;
+            }
 
-            let local_player = self
+            let local_player_instance = self
                 .process
                 .read::<u64>(Address::from(local_player_static_fields))
                 .unwrap();
-            let health = self
-                .process
-                .read::<f32>(Address::from(local_player + health_offset))
-                .unwrap();
+
+            if local_player_instance < 0 as u64 {
+                continue;
+            }
+            let local_player = BasePlayer::new(&mut self.process, local_player_instance);
+            if !local_player.is_player_valid() {
+                continue;
+            }
+
             std::thread::sleep(std::time::Duration::from_millis(1000));
         }
     }
