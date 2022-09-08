@@ -3,26 +3,6 @@ use memflow::prelude::v1::*;
 use crate::il2cpp::Il2Cpp;
 
 // lazy_static! {
-//     let IL2CPP: Il2Cpp = {
-//         let inventory = Inventory::scan();
-//         let mut os = inventory
-//             .builder()
-//             .connector(il2cpp::CONN_NAME)
-//             .os(il2cpp::KRNL_NAME)
-//             .build()
-//             .expect("unable to instantiate connector / os");
-
-//         let mut process = os.process_by_name("RustClient.exe").unwrap();
-
-//         Il2Cpp::new(&mut process) };
-
-//     // let FLAG_OFFSET: u64 = il2cpp.images.get("Assembly-CSharp").unwrap().classes.get("BaseEntity").unwrap().get_field_offset(String::from("flags")) as u64;
-//     // let MODEL_OFFSET: u64 = il2cpp.images.get("Assembly-CSharp").unwrap().classes.get("BaseEntity").unwrap().get_field_offset(String::from("model")) as u64;
-//     // let NET_OFFSET: u64 = il2cpp.images.get("Assembly-CSharp").unwrap().classes.get("BaseNetworkable").unwrap().get_field_offset(String::from("net")) as u64;
-//     // let NET_ID_OFFSET: u64 = il2cpp.images.get("Facepunch.Network").unwrap().classes.get("Networkable").unwrap().get_field_offset(String::from("ID")) as u64;
-//     // let HEALTH_OFFSET: u64 = il2cpp.images.get("Assembly-CSharp").unwrap().classes.get("BaseCombatEntity").unwrap().get_field_offset(String::from("_health")) as u64;
-//     // let PLAYERMODEL_OFFSET: u64 = il2cpp.images.get("Assembly-CSharp").unwrap().classes.get("BasePlayer").unwrap().get_field_offset(String::from("playerModel")) as u64;
-
 //     // let DISPLAYNAME_OFFSET: u64 = (*GAME_ASSEMBLY)
 //     //     .fast("Assembly-CSharp:static BasePlayer._displayName")
 //     //     .unwrap();
@@ -35,6 +15,7 @@ pub struct Offsets {
     pub net_id_offset: u64,
     pub health_offset: u64,
     pub playermodel_offset: u64,
+    pub displayname_offset: u64,
 }
 
 impl Offsets {
@@ -47,6 +28,16 @@ impl Offsets {
             .get("BaseEntity")
             .unwrap()
             .get_field_offset(process, String::from("flags")) as u64;
+        let displayname_offset: u64 = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("BasePlayer")
+            .unwrap()
+            .get_field_offset(process, String::from("_displayName"))
+            as u64;
+
         let model_offset: u64 = il2cpp
             .images
             .get("Assembly-CSharp")
@@ -98,6 +89,7 @@ impl Offsets {
             net_id_offset,
             health_offset,
             playermodel_offset,
+            displayname_offset,
         }
     }
 }
@@ -137,21 +129,51 @@ impl MonoString {
 }
 
 pub struct Object {}
+impl Object {
+    pub fn new<P: MemoryView>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {
+        Self {}
+    }
+}
 
 pub struct Component {
     object: Object,
+}
+impl Component {
+    pub fn new<P: MemoryView>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {
+        Self {
+            object: Object::new(process, instance, offsets),
+        }
+    }
 }
 
 pub struct Behaviour {
     component: Component,
 }
+impl Behaviour {
+    pub fn new<P: MemoryView>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {
+        let component = Component::new(process, instance, offsets);
+        Self { component }
+    }
+}
 
 pub struct MonoBehaviour {
     behaviour: Behaviour,
 }
+impl MonoBehaviour {
+    pub fn new<P: MemoryView>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {
+        let behaviour = Behaviour::new(process, instance, offsets);
+        Self { behaviour }
+    }
+}
 
 pub struct FacepunchBehaviour {
     mono_behaviour: MonoBehaviour,
+}
+impl FacepunchBehaviour {
+    pub fn new<P: MemoryView>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {
+        let mono_behaviour = MonoBehaviour::new(process, instance, offsets);
+        Self { mono_behaviour }
+    }
 }
 
 pub struct BaseMonoBehaviour {
@@ -159,7 +181,12 @@ pub struct BaseMonoBehaviour {
 }
 
 impl BaseMonoBehaviour {
-    pub fn new<P: MemoryView>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {}
+    pub fn new<P: MemoryView>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {
+        let facepunch_behaviour = FacepunchBehaviour::new(process, instance, offsets);
+        Self {
+            facepunch_behaviour,
+        }
+    }
 }
 
 pub struct Networkable {
