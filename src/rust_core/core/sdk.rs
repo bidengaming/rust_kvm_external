@@ -136,6 +136,32 @@ impl MonoString {
     }
 }
 
+pub struct Object {}
+
+pub struct Component {
+    object: Object,
+}
+
+pub struct Behaviour {
+    component: Component,
+}
+
+pub struct MonoBehaviour {
+    behaviour: Behaviour,
+}
+
+pub struct FacepunchBehaviour {
+    mono_behaviour: MonoBehaviour,
+}
+
+pub struct BaseMonoBehaviour {
+    facepunch_behaviour: FacepunchBehaviour,
+}
+
+impl BaseMonoBehaviour {
+    pub fn new<P: MemoryView>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {}
+}
+
 pub struct Networkable {
     pub id: u32,
 }
@@ -150,6 +176,7 @@ impl Networkable {
 }
 
 pub struct BaseNetworkable {
+    pub base_mono_behaviour: BaseMonoBehaviour,
     pub client_entities: u64,
     pub net: Networkable,
 }
@@ -158,10 +185,11 @@ impl BaseNetworkable {
     pub fn new<P: MemoryView>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {
         let net_instance = process.read::<u64>(Address::from(instance + 0x58)).unwrap();
         let net = Networkable::new(process, net_instance, offsets);
-
+        let base_mono_behaviour = BaseMonoBehaviour::new(process, instance, offsets);
         Self {
             client_entities: 0,
             net,
+            base_mono_behaviour,
         }
     }
 }

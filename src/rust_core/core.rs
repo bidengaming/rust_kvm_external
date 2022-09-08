@@ -42,8 +42,7 @@ impl<P: Process + MemoryView, K: Keyboard> RustCore<P, K> {
             if !local_player.is_player_valid() {
                 continue;
             }
-            println!("displayname: {}", local_player.display_name.inner.as_str());
-            println!("health: {}", local_player.base_combat_entity._health);
+
             std::thread::sleep(std::time::Duration::from_millis(1000));
         }
     }
