@@ -19,8 +19,13 @@ impl<P: Process + MemoryView, K: Keyboard> RustCore<P, K> {
         let il2cpp = Il2Cpp::new(&mut self.process);
         let assembly_csharp = il2cpp.images.get("Assembly-CSharp").unwrap();
         let local_player_class = assembly_csharp.classes.get("LocalPlayer").unwrap();
-        let offsets = Offsets::new(&mut self.process, &il2cpp);
+        assembly_csharp
+            .classes
+            .get("LocalPlayer")
+            .unwrap()
+            .get_method(&mut self.process, String::from("get_Entity"));
 
+        let offsets = Offsets::new(&mut self.process, &il2cpp);
         loop {
             let local_player_static_fields = self
                 .process

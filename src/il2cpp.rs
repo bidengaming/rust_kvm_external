@@ -8,6 +8,18 @@ const CLASS_TABLE: u64 = 0x2F8E128;
 pub const CONN_NAME: &str = "qemu";
 pub const KRNL_NAME: &str = "win32";
 
+pub struct Il2CppMethod {
+    pub instance: u64,
+    pub address: u64,
+}
+
+impl Il2CppMethod {
+    pub fn new<P: MemoryView>(process: &mut P, instance: u64) -> Self {
+        let address = process.read::<u64>(Address::from(instance)).unwrap();
+        Self { instance, address }
+    }
+}
+
 pub struct Il2CppClass {
     fields_size: u32,
     fields_table: u64,
@@ -39,34 +51,52 @@ impl Il2CppClass {
         0
     }
 
-    pub fn get_method_address<P: MemoryView + Process>(
+    pub fn get_method<P: MemoryView + Process>(
         &self,
         process: &mut P,
         method_to_find: String,
-    ) -> u64 {
+    ) -> Il2CppMethod {
         let method_table = process
             .read::<u64>(Address::from(self.instance + 0x98))
             .unwrap();
+
         let method_count = process
             .read::<u32>(Address::from(self.instance + 0x118))
             .unwrap();
-        let mut current_method = method_table;
-        while current_method < method_table + (8 * method_count) as u64 {
-            let unk = process.read::<u64>(Address::from(current_method)).unwrap();
+        println!("method count: {}", method_count);
 
-            let field_name = process.read_char_string(Address::from(unk)).unwrap();
-            println!("{}", field_name);
-            if field_name == method_to_find {
-                // let offset = process
-                //     .read::<u32>(Address::from(current_field + 0x18))
-                //     .unwrap();
-                // return offset;
-                return current_method;
+        for i in 0..method_count as u64 {
+            let current_method = process
+                .read::<u64>(Address::from(method_table + 0x8 * i))
+                .unwrap();
+
+            let method_name = process
+                .read::<u64>(Address::from(current_method + 0x10))
+                .unwrap();
+
+            let method_name = process
+                .read_char_string(Address::from(method_name))
+                .unwrap();
+            if method_name == method_to_find {
+                let method_address = process.read::<u64>(Address::from(current_method)).unwrap();
+                return Il2CppMethod::new(process, current_method);
             }
-
-            current_method += 0x8;
         }
-        0
+        Il2CppMethod::new(process, 0)
+        // while iterator < method_table + (method_count * 0x8) as u64 {
+        //     let current_method = process.read::<u64>(Address::from(iterator)).unwrap();
+
+        //     let method_name = process
+        //         .read_char_string(Address::from(current_method + 0x10))
+        //         .unwrap();
+        //     println!("method name: {}", method_name);
+        //     if method_name == method_to_find {
+        //         println!("Found method: {}", method_name);
+        //         return current_method;
+        //     }
+
+        //     iterator += 0x8;
+        // }
     }
 
     pub fn get_static_field_address<P: MemoryView + Process>(
