@@ -39,57 +39,32 @@ impl Il2CppClass {
         0
     }
 
-    fn il2cpp_class_get_methods<P: MemoryView + Process>(
-        &self,
-        process: &mut P,
-        iterator: u64,
-    ) -> (u64, u64) {
-        if iterator > 0 as u64 {
-            let v5 = process.read::<u64>(Address::from(iterator)).unwrap() + 8 as u64;
-            let unk = process
-                .read::<u64>(Address::from(self.instance + 0x98))
-                .unwrap();
-            if v5
-                < unk
-                    + (8 as u64)
-                        * (process
-                            .read::<u32>(Address::from(self.instance + 0x118))
-                            .unwrap() as u64)
-            {
-                return (process.read::<u64>(Address::from(v5)).unwrap(), v5);
-            }
-        } else {
-            let unk = process
-                .read::<u16>(Address::from(self.instance + 0x118))
-                .unwrap();
-            if unk > 0 as u16 {
-                let unk1 = process
-                    .read::<u64>(Address::from(self.instance + 0x98))
-                    .unwrap();
-                return (process.read(Address::from(unk1)).unwrap(), unk1);
-            }
-        }
-
-        (0, 0)
-    }
-
     pub fn get_method_address<P: MemoryView + Process>(
         &self,
         process: &mut P,
         method_to_find: String,
     ) -> u64 {
-        let mut iterator: u64 = 0;
-        let (mut method, mut new_iterator) = self.il2cpp_class_get_methods(process, iterator);
-        while method > 0 as u64 {
-            (method, new_iterator) = self.il2cpp_class_get_methods(process, iterator);
-            let method_name = process
-                .read_char_string(Address::from(method + 0x10))
-                .unwrap();
-            if method_name == method_to_find {
-                return method;
+        let method_table = process
+            .read::<u64>(Address::from(self.instance + 0x98))
+            .unwrap();
+        let method_count = process
+            .read::<u32>(Address::from(self.instance + 0x118))
+            .unwrap();
+        let mut current_method = method_table;
+        while current_method < method_table + (8 * method_count) as u64 {
+            let unk = process.read::<u64>(Address::from(current_method)).unwrap();
+
+            let field_name = process.read_char_string(Address::from(unk)).unwrap();
+            println!("{}", field_name);
+            if field_name == method_to_find {
+                // let offset = process
+                //     .read::<u32>(Address::from(current_field + 0x18))
+                //     .unwrap();
+                // return offset;
+                return current_method;
             }
 
-            iterator = new_iterator;
+            current_method += 0x8;
         }
         0
     }
