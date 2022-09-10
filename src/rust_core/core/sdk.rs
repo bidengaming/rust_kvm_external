@@ -2,12 +2,6 @@ use memflow::prelude::v1::*;
 
 use crate::il2cpp::Il2Cpp;
 
-// lazy_static! {
-//     // let DISPLAYNAME_OFFSET: u64 = (*GAME_ASSEMBLY)
-//     //     .fast("Assembly-CSharp:static BasePlayer._displayName")
-//     //     .unwrap();
-// }
-
 pub struct Offsets {
     pub flag_offset: u64,
     pub model_offset: u64,
@@ -16,6 +10,11 @@ pub struct Offsets {
     pub health_offset: u64,
     pub playermodel_offset: u64,
     pub displayname_offset: u64,
+    pub cl_active_item_offset: u64,
+    pub inventory_offset: u64,
+    pub item_list_offset: u64,
+    pub container_belt_offset: u64,
+    pub item_uid_offset: u64,
 }
 
 impl Offsets {
@@ -81,7 +80,53 @@ impl Offsets {
             .unwrap()
             .get_field_offset(process, String::from("playerModel"))
             as u64;
+        let cl_active_item_offset: u64 = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("BasePlayer")
+            .unwrap()
+            .get_field_offset(process, String::from("clActiveItem"))
+            as u64;
+        let inventory_offset: u64 = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("BasePlayer")
+            .unwrap()
+            .get_field_offset(process, String::from("inventory"))
+            as u64;
 
+        let container_belt_offset: u64 = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("PlayerInventory")
+            .unwrap()
+            .get_field_offset(process, String::from("containerBelt"))
+            as u64;
+        let item_list_offset: u64 = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("ItemContainer")
+            .unwrap()
+            .get_field_offset(process, String::from("itemList"))
+            as u64;
+
+        let item_uid_offset: u64 = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("Item")
+            .unwrap()
+            .get_field_offset(process, String::from("uid"))
+            as u64;
         Self {
             flag_offset,
             model_offset,
@@ -90,6 +135,68 @@ impl Offsets {
             health_offset,
             playermodel_offset,
             displayname_offset,
+            cl_active_item_offset,
+            inventory_offset,
+            container_belt_offset,
+            item_list_offset,
+            item_uid_offset,
+        }
+    }
+}
+
+pub trait RemoteObject {
+    fn size() -> usize {
+        0
+    }
+    fn new() -> Self;
+    fn update<P: MemoryView + Process>(
+        &mut self,
+        ptr: Address,
+        process: &mut P,
+        offsets: &Offsets,
+    ) -> Option<()>;
+}
+
+pub struct MonoArray<T: RemoteObject> {
+    pub address: Address,
+    pub size: i32,
+    pub elements: Vec<T>,
+}
+
+impl<T: Clone + RemoteObject> MonoArray<T> {
+    pub fn new<P: Process + MemoryView>(
+        process: &mut P,
+        address: Address,
+        offsets: &Offsets,
+    ) -> Self {
+        let count = process.read::<i32>(address + 0x18).unwrap();
+        if count > 0x7fff {
+            println!("Array count is too large");
+            return Self {
+                address: Address::from(0),
+                size: 0 as i32,
+                elements: Vec::new(),
+            };
+        }
+        let mut elements = Vec::new();
+        elements.resize(count as usize, T::new());
+        let mut counter = 0;
+        for entry in elements.iter_mut() {
+            match entry.update(address + 0x20 + counter as usize * 0x8, process, offsets) {
+                Some(()) => {
+                    counter += 1;
+                }
+                None => {
+                    println!("Failed to update array element");
+                    break;
+                }
+            }
+        }
+
+        Self {
+            address,
+            size: count,
+            elements: elements,
         }
     }
 }
@@ -283,31 +390,136 @@ impl PlayerEyes {
 }
 
 pub struct BasePlayer {
+    pub instance: u64,
     pub base_combat_entity: BaseCombatEntity,
     pub player_model: PlayerModel,
     pub eyes: PlayerEyes,
     pub display_name: MonoString,
+    pub cl_active_item: u32,
+    pub inventory: PlayerInventory,
+}
+
+#[derive(Clone)]
+pub struct Item {
+    pub instance: u64,
+    pub uid: u32,
+}
+
+impl RemoteObject for Item {
+    fn size() -> usize {
+        std::mem::size_of::<Item>()
+    }
+
+    fn new() -> Self {
+        Self {
+            instance: 0,
+            uid: 0,
+        }
+    }
+    fn update<P: MemoryView + Process>(
+        &mut self,
+        ptr: Address,
+        process: &mut P,
+        offsets: &Offsets,
+    ) -> Option<()> {
+        self.instance = process.read::<u64>(ptr).unwrap();
+        self.uid = process
+            .read::<u32>(Address::from(self.instance + offsets.item_uid_offset))
+            .unwrap();
+        Some(())
+    }
+}
+
+pub struct ItemContainer {
+    pub item_list: Vec<Item>,
+}
+impl ItemContainer {
+    pub fn new<P: MemoryView + Process>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {
+        let item_list = process
+            .read::<u64>(Address::from(instance + offsets.item_list_offset))
+            .unwrap();
+        let internal_list = process
+            .read::<u64>(Address::from(item_list + 0x10))
+            .unwrap();
+        let mono_array = MonoArray::<Item>::new(process, Address::from(internal_list), offsets);
+        Self {
+            item_list: mono_array.elements,
+        }
+    }
+}
+
+pub struct PlayerInventory {
+    pub instance: u64,
+    pub container_belt: ItemContainer,
+}
+
+impl PlayerInventory {
+    pub fn new<P: MemoryView + Process>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {
+        let container_belt = process
+            .read::<u64>(Address::from(instance + offsets.container_belt_offset))
+            .unwrap();
+        let container_belt = ItemContainer::new(process, container_belt, offsets);
+        Self {
+            instance,
+            container_belt,
+        }
+    }
 }
 
 impl BasePlayer {
-    pub fn new<P: MemoryView + Process>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {
-        //wrong offsets
-        // let player_model = process
-        //     .read::<u64>(Address::from(instance + *PLAYERMODEL_OFFSET))
-        //     .unwrap();
-        // let eyes = process
-        //     .read::<u64>(Address::from(instance + *PLAYEREYES_OFFSET))
-        //     .unwrap();
+    pub fn get_active_item<P: MemoryView + Process>(
+        &mut self,
+        process: &mut P,
+        offsets: &Offsets,
+    ) -> Item {
+        if self.cl_active_item <= 0 as u32 {
+            println!("No active item");
+            return Item::new();
+        }
 
+        if self.inventory.instance <= 0 as u64 {
+            println!("No inventory");
+            return Item::new();
+        }
+
+        if self.inventory.container_belt.item_list.len() <= 0 {
+            println!("No belt items");
+            return Item::new();
+        }
+
+        //loop through container belt item list
+        for item in self.inventory.container_belt.item_list.iter() {
+            //if item id matches active item id
+            if item.uid == self.cl_active_item {
+                //return item
+                return item.clone();
+            }
+        }
+
+        return Item::new();
+    }
+
+    pub fn new<P: MemoryView + Process>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {
         let display_name_instance = process
-            .read::<u64>(Address::from(instance + 0x6F0))
+            .read::<u64>(Address::from(instance + offsets.displayname_offset))
             .unwrap();
         let display_name = MonoString::new(process, display_name_instance);
+        let cl_active_item = process
+            .read::<u32>(Address::from(instance + offsets.cl_active_item_offset))
+            .unwrap();
+        let inventory = process
+            .read::<u64>(Address::from(instance + offsets.inventory_offset))
+            .unwrap();
+
+        let inventory = PlayerInventory::new(process, inventory, offsets);
         Self {
+            instance,
             base_combat_entity: BaseCombatEntity::new(process, instance, offsets),
             player_model: PlayerModel::new(process, display_name_instance, offsets),
             eyes: PlayerEyes::new(process, display_name_instance, offsets),
             display_name,
+            cl_active_item,
+            inventory,
         }
     }
 

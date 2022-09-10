@@ -11,6 +11,25 @@ pub struct RustCore<P, K> {
     keyboard: K,
 }
 impl<P: Process + MemoryView, K: Keyboard> RustCore<P, K> {
+    pub fn find_code_cave(&mut self, size: i64) -> u64 {
+        let mut last_region: u64 = 0_u64;
+        let regions = self.process.mapped_mem_range_vec(
+            size,
+            Address::from(last_region),
+            self.process.metadata().max_address,
+        );
+        for region in regions {
+            if (region.2 & PageType::WRITEABLE) != PageType::WRITEABLE
+                || (region.2 & PageType::NOEXEC) == PageType::NOEXEC
+                || region.1 < size as u64
+            {
+                continue;
+            }
+            last_region = region.0.to_umem() + region.1;
+        }
+        0
+    }
+
     pub fn new(process: P, keyboard: K) -> Self {
         Self { process, keyboard }
     }
@@ -19,19 +38,16 @@ impl<P: Process + MemoryView, K: Keyboard> RustCore<P, K> {
         let il2cpp = Il2Cpp::new(&mut self.process);
         let assembly_csharp = il2cpp.images.get("Assembly-CSharp").unwrap();
         let local_player_class = assembly_csharp.classes.get("LocalPlayer").unwrap();
-        assembly_csharp
-            .classes
-            .get("LocalPlayer")
-            .unwrap()
-            .get_method(&mut self.process, String::from("get_Entity"));
 
         let offsets = Offsets::new(&mut self.process, &il2cpp);
         loop {
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+
             let local_player_static_fields = self
                 .process
                 .read::<u64>(Address::from(local_player_class.instance + 0xB8))
                 .unwrap();
-            if local_player_static_fields < 0 as u64 {
+            if local_player_static_fields <= 0 as u64 {
                 continue;
             }
 
@@ -40,15 +56,16 @@ impl<P: Process + MemoryView, K: Keyboard> RustCore<P, K> {
                 .read::<u64>(Address::from(local_player_static_fields))
                 .unwrap();
 
-            if local_player_instance < 0 as u64 {
+            if local_player_instance <= 0 as u64 {
                 continue;
             }
-            let local_player = BasePlayer::new(&mut self.process, local_player_instance, &offsets);
+            let mut local_player =
+                BasePlayer::new(&mut self.process, local_player_instance, &offsets);
             if !local_player.is_player_valid() {
                 continue;
             }
-
-            std::thread::sleep(std::time::Duration::from_millis(1000));
+            let active_item = local_player.get_active_item(&mut self.process, &offsets);
+            if active_item.instance >= 0 as u64 {}
         }
     }
 }

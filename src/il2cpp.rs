@@ -47,7 +47,7 @@ impl Il2CppClass {
 
             current_field += 0x20;
         }
-
+        println!("could not find field: {}", field_to_find);
         0
     }
 
@@ -63,7 +63,6 @@ impl Il2CppClass {
         let method_count = process
             .read::<u32>(Address::from(self.instance + 0x118))
             .unwrap();
-        println!("method count: {}", method_count);
 
         for i in 0..method_count as u64 {
             let current_method = process
@@ -83,20 +82,6 @@ impl Il2CppClass {
             }
         }
         Il2CppMethod::new(process, 0)
-        // while iterator < method_table + (method_count * 0x8) as u64 {
-        //     let current_method = process.read::<u64>(Address::from(iterator)).unwrap();
-
-        //     let method_name = process
-        //         .read_char_string(Address::from(current_method + 0x10))
-        //         .unwrap();
-        //     println!("method name: {}", method_name);
-        //     if method_name == method_to_find {
-        //         println!("Found method: {}", method_name);
-        //         return current_method;
-        //     }
-
-        //     iterator += 0x8;
-        // }
     }
 
     pub fn get_static_field_address<P: MemoryView + Process>(
