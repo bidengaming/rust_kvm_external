@@ -90,7 +90,7 @@ impl Il2CppClass {
         field_to_find: String,
     ) -> u64 {
         let current_field_key = self.get_field_offset(process, field_to_find);
-        if current_field_key < 0u32 {
+        if current_field_key < 0 as u32 {
             return 0_u64;
         }
 

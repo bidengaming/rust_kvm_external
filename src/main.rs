@@ -16,12 +16,19 @@ fn main() {
         .build()
         .expect("unable to instantiate connector / os");
 
-    let keyboard = os
+    let mut keyboard = os
         .clone()
         .into_impl_oskeyboardinner()
         .expect("kernel plugin has not enabled the keyboard feature")
         .into_keyboard()
         .expect("unable to initialize keyboard");
+
+    while !keyboard.is_down(0x2D) {
+        println!("Press Insert to attach to Rust");
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+    }
+
+    println!("Attaching to Rust");
 
     let process = os.process_by_name("RustClient.exe").unwrap();
     println!("found process: {:?}", process.info());

@@ -8,6 +8,7 @@ pub struct Offsets {
     pub net_offset: u64,
     pub net_id_offset: u64,
     pub health_offset: u64,
+    pub base_combat_entity_lifestate: u64,
     pub playermodel_offset: u64,
     pub displayname_offset: u64,
     pub cl_active_item_offset: u64,
@@ -15,6 +16,16 @@ pub struct Offsets {
     pub item_list_offset: u64,
     pub container_belt_offset: u64,
     pub item_uid_offset: u64,
+    pub item_info_offset: u64,
+    pub item_definition_category_offset: u64,
+    pub item_held_entity_offset: u64,
+    pub base_projectile_automatic_offset: u64,
+    pub base_projectile_aim_sway_offset: u64,
+    pub base_projectile_recoil_offset: u64,
+    pub base_projectile_aimcone_offset: u64,
+    pub base_projectile_hip_aim_cone_offset: u64,
+    pub base_projectile_created_projectile_offset: u64,
+    pub recoil_properties_new_recoil_override_offset: u64,
 }
 
 impl Offsets {
@@ -46,14 +57,16 @@ impl Offsets {
             .unwrap()
             .get_field_offset(process, String::from("model"))
             as u64;
-        let net_offset: u64 = il2cpp
-            .images
-            .get("Assembly-CSharp")
-            .unwrap()
-            .classes
-            .get("BaseNetworkable")
-            .unwrap()
-            .get_field_offset(process, String::from("net")) as u64;
+        let net_offset: u64 = 0x58 as u64;
+        // due to basenet being encrypted cant get class instance
+        // il2cpp
+        //     .images
+        //     .get("Assembly-CSharp")
+        //     .unwrap()
+        //     .classes
+        //     .get("BaseNetworkable")
+        //     .unwrap()
+        //     .get_field_offset(process, String::from("net")) as u64;
         let net_id_offset: u64 = il2cpp
             .images
             .get("Facepunch.Network")
@@ -127,7 +140,119 @@ impl Offsets {
             .unwrap()
             .get_field_offset(process, String::from("uid"))
             as u64;
+        let item_info_offset: u64 = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("Item")
+            .unwrap()
+            .get_field_offset(process, String::from("info"))
+            as u64;
+
+        let item_definition_category_offset: u64 = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("ItemDefinition")
+            .unwrap()
+            .get_field_offset(process, String::from("category"))
+            as u64;
+
+        let item_held_entity_offset: u64 = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("Item")
+            .unwrap()
+            .get_field_offset(process, String::from("heldEntity"))
+            as u64;
+        let base_projectile_automatic_offset: u64 = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("BaseProjectile")
+            .unwrap()
+            .get_field_offset(process, String::from("automatic"))
+            as u64;
+        let base_projectile_aim_sway_offset: u64 = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("BaseProjectile")
+            .unwrap()
+            .get_field_offset(process, String::from("aimSway"))
+            as u64;
+        let base_projectile_recoil_offset: u64 = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("BaseProjectile")
+            .unwrap()
+            .get_field_offset(process, String::from("recoil"))
+            as u64;
+        let base_projectile_aimcone_offset: u64 = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("BaseProjectile")
+            .unwrap()
+            .get_field_offset(process, String::from("aimCone"))
+            as u64;
+        let base_projectile_created_projectile_offset: u64 = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("BaseProjectile")
+            .unwrap()
+            .get_field_offset(process, String::from("createdProjectiles"))
+            as u64;
+        let base_projectile_hip_aim_cone_offset: u64 = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("BaseProjectile")
+            .unwrap()
+            .get_field_offset(process, String::from("hipAimCone"))
+            as u64;
+        let base_combat_entity_lifestate = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("BaseCombatEntity")
+            .unwrap()
+            .get_field_offset(process, String::from("lifestate"))
+            as u64;
+        let recoil_properties_new_recoil_override_offset = il2cpp
+            .images
+            .get("Assembly-CSharp")
+            .unwrap()
+            .classes
+            .get("RecoilProperties")
+            .unwrap()
+            .get_field_offset(process, String::from("newRecoilOverride"))
+            as u64;
         Self {
+            recoil_properties_new_recoil_override_offset,
+            base_combat_entity_lifestate,
+            base_projectile_hip_aim_cone_offset,
+            base_projectile_aimcone_offset,
+            base_projectile_created_projectile_offset,
+            base_projectile_recoil_offset,
+            base_projectile_aim_sway_offset,
+            base_projectile_automatic_offset,
+            item_held_entity_offset,
+            item_definition_category_offset,
+            item_info_offset,
             flag_offset,
             model_offset,
             net_offset,
@@ -145,9 +270,6 @@ impl Offsets {
 }
 
 pub trait RemoteObject {
-    fn size() -> usize {
-        0
-    }
     fn new() -> Self;
     fn update<P: MemoryView + Process>(
         &mut self,
@@ -361,16 +483,23 @@ impl BaseEntity {
 pub struct BaseCombatEntity {
     pub base_entity: BaseEntity,
     pub _health: f32,
+    pub lifestate: i32,
 }
 
 impl BaseCombatEntity {
     pub fn new<P: MemoryView>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {
-        let health = process
+        let _health = process
             .read::<f32>(Address::from(instance + offsets.health_offset))
+            .unwrap();
+        let lifestate = process
+            .read::<i32>(Address::from(
+                instance + offsets.base_combat_entity_lifestate,
+            ))
             .unwrap();
         Self {
             base_entity: BaseEntity::new(process, instance, offsets),
-            _health: health,
+            _health,
+            lifestate,
         }
     }
 }
@@ -399,21 +528,203 @@ pub struct BasePlayer {
     pub inventory: PlayerInventory,
 }
 
+pub enum ItemCategory {
+    Weapon = 0,
+    Construction = 1,
+    Items = 2,
+    Resources = 3,
+    Attire = 4,
+    Tool = 5,
+    Medical = 6,
+    Food = 7,
+    Ammunition = 8,
+    Traps = 9,
+    Misc = 10,
+    All = 11,
+    Common = 12,
+    Component = 13,
+    Search = 14,
+    Favourite = 15,
+    Electrical = 16,
+    Fun = 17,
+}
+
+#[derive(Clone)]
+pub struct ItemDefinition {
+    pub instance: u64,
+    pub category: u32,
+}
+
+impl ItemDefinition {
+    pub fn new<P: MemoryView>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {
+        let category = process
+            .read::<u32>(Address::from(
+                instance + offsets.item_definition_category_offset,
+            ))
+            .unwrap();
+        Self { instance, category }
+    }
+}
+
+#[derive(Clone)]
+pub struct Projectile {}
+
+impl RemoteObject for Projectile {
+    fn new() -> Self {
+        Self {}
+    }
+    fn update<P: MemoryView + Process>(
+        &mut self,
+        ptr: Address,
+        process: &mut P,
+        offsets: &Offsets,
+    ) -> Option<()> {
+        Some(())
+    }
+}
+#[derive(Clone)]
+pub struct RecoilProperties {
+    pub instance: u64,
+    pub recoil_yaw_min: f32,
+    pub recoil_yaw_max: f32,
+    pub recoil_pitch_min: f32,
+    pub recoil_pitch_max: f32,
+}
+
+impl RecoilProperties {
+    pub fn new<P: MemoryView>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {
+        let recoil_yaw_min = process.read::<f32>(Address::from(instance + 0x18)).unwrap();
+        let recoil_yaw_max = process.read::<f32>(Address::from(instance + 0x1C)).unwrap();
+        let recoil_pitch_min = process.read::<f32>(Address::from(instance + 0x20)).unwrap();
+        let recoil_pitch_max = process.read::<f32>(Address::from(instance + 0x24)).unwrap();
+        Self {
+            instance,
+            recoil_yaw_min,
+            recoil_yaw_max,
+            recoil_pitch_min,
+            recoil_pitch_max,
+        }
+    }
+
+    pub fn set_recoil<P: MemoryView>(&self, process: &mut P, recoil: f32) {
+        let recoil_yaw_min = recoil * self.recoil_yaw_min;
+        process
+            .write::<f32>(Address::from(self.instance + 0x18), &recoil_yaw_min)
+            .unwrap();
+        let recoil_yaw_max = recoil * self.recoil_yaw_max;
+        process
+            .write::<f32>(Address::from(self.instance + 0x1C), &recoil_yaw_max)
+            .unwrap();
+        let recoil_pitch_min = recoil * self.recoil_pitch_min;
+        process
+            .write::<f32>(Address::from(self.instance + 0x20), &recoil_pitch_min)
+            .unwrap();
+        let recoil_pitch_max = recoil * self.recoil_pitch_max;
+        process
+            .write::<f32>(Address::from(self.instance + 0x24), &recoil_pitch_max)
+            .unwrap();
+    }
+}
+
+#[derive(Clone)]
+pub struct BaseProjectile {
+    pub instance: u64,
+    pub created_projectiles: Vec<Projectile>,
+    pub recoil: RecoilProperties,
+}
+
+impl BaseProjectile {
+    pub fn new<P: Process + MemoryView>(process: &mut P, instance: u64, offsets: &Offsets) -> Self {
+        let created_projectiles = process
+            .read::<u64>(Address::from(
+                instance + offsets.base_projectile_created_projectile_offset,
+            ))
+            .unwrap();
+        let created_projectiles = process
+            .read::<u64>(Address::from(created_projectiles + 0x10))
+            .unwrap();
+        let created_projectiles =
+            MonoArray::<Projectile>::new(process, Address::from(created_projectiles), offsets);
+
+        let recoil = process
+            .read::<u64>(Address::from(
+                instance + offsets.base_projectile_recoil_offset,
+            ))
+            .unwrap();
+        let recoil = process
+            .read::<u64>(Address::from(
+                recoil + offsets.recoil_properties_new_recoil_override_offset,
+            ))
+            .unwrap();
+        Self {
+            instance,
+            created_projectiles: created_projectiles.elements,
+            recoil: RecoilProperties::new(process, recoil, offsets),
+        }
+    }
+
+    pub fn set_automatic<P: MemoryView>(&self, process: &mut P, automatic: i32, offsets: &Offsets) {
+        process
+            .write::<i32>(
+                Address::from(self.instance + offsets.base_projectile_automatic_offset),
+                &automatic,
+            )
+            .unwrap();
+    }
+
+    pub fn set_no_sway<P: MemoryView>(&self, process: &mut P, sway: f32, offsets: &Offsets) {
+        process
+            .write::<f32>(
+                Address::from(self.instance + offsets.base_projectile_aim_sway_offset),
+                &sway,
+            )
+            .unwrap();
+    }
+
+    pub fn set_spread<P: MemoryView>(&self, process: &mut P, aim_cone: f32, offsets: &Offsets) {
+        process
+            .write::<f32>(
+                Address::from(self.instance + offsets.base_projectile_aimcone_offset),
+                &aim_cone,
+            )
+            .unwrap();
+        process
+            .write::<f32>(
+                Address::from(self.instance + offsets.base_projectile_hip_aim_cone_offset),
+                &aim_cone,
+            )
+            .unwrap();
+    }
+}
+
 #[derive(Clone)]
 pub struct Item {
     pub instance: u64,
     pub uid: u32,
+    pub item_definition: ItemDefinition,
+    pub held_entity: BaseProjectile,
 }
 
 impl RemoteObject for Item {
-    fn size() -> usize {
-        std::mem::size_of::<Item>()
-    }
-
     fn new() -> Self {
         Self {
             instance: 0,
             uid: 0,
+            item_definition: ItemDefinition {
+                instance: 0,
+                category: 0,
+            },
+            held_entity: BaseProjectile {
+                instance: 0,
+                created_projectiles: Vec::new(),
+                recoil: RecoilProperties {
+                    instance: 0,
+                    recoil_yaw_min: 0.0,
+                    recoil_yaw_max: 0.0,
+                    recoil_pitch_min: 0.0,
+                    recoil_pitch_max: 0.0,
+                },
+            },
         }
     }
     fn update<P: MemoryView + Process>(
@@ -426,7 +737,32 @@ impl RemoteObject for Item {
         self.uid = process
             .read::<u32>(Address::from(self.instance + offsets.item_uid_offset))
             .unwrap();
+
+        let item_definition = process
+            .read::<u64>(Address::from(self.instance + offsets.item_info_offset))
+            .unwrap();
+        self.item_definition = ItemDefinition::new(process, item_definition, offsets);
+
+        if self.is_weapon() {
+            let held_entity = process
+                .read::<u64>(Address::from(
+                    self.instance + offsets.item_held_entity_offset,
+                ))
+                .unwrap();
+            self.held_entity = BaseProjectile::new(process, held_entity, offsets);
+        }
         Some(())
+    }
+}
+
+impl Item {
+    pub fn is_weapon(&self) -> bool {
+        if self.item_definition.category == ItemCategory::Weapon as u32
+            && self.item_definition.instance > 0 as u64
+        {
+            return true;
+        }
+        return false;
     }
 }
 
@@ -473,7 +809,6 @@ impl BasePlayer {
         offsets: &Offsets,
     ) -> Item {
         if self.cl_active_item <= 0 as u32 {
-            println!("No active item");
             return Item::new();
         }
 
@@ -526,6 +861,6 @@ impl BasePlayer {
     pub fn is_player_valid(&self) -> bool {
         self.base_combat_entity.base_entity.base_networkable.net.id > 0
             && self.base_combat_entity._health > 0.0
-            && self.base_combat_entity.base_entity.flags & 0x100 == 0
+            && self.base_combat_entity.lifestate == 0
     }
 }

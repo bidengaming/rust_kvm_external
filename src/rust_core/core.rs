@@ -39,6 +39,7 @@ impl<P: Process + MemoryView, K: Keyboard> RustCore<P, K> {
         let assembly_csharp = il2cpp.images.get("Assembly-CSharp").unwrap();
         let local_player_class = assembly_csharp.classes.get("LocalPlayer").unwrap();
 
+        let mut last_item_uid: u32 = 0;
         let offsets = Offsets::new(&mut self.process, &il2cpp);
         loop {
             std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -65,7 +66,28 @@ impl<P: Process + MemoryView, K: Keyboard> RustCore<P, K> {
                 continue;
             }
             let active_item = local_player.get_active_item(&mut self.process, &offsets);
-            if active_item.instance >= 0 as u64 {}
+            if active_item.uid > 0 as u32 && active_item.held_entity.instance > 0 as u64 {
+                if active_item.is_weapon() {
+                    active_item
+                        .held_entity
+                        .set_automatic(&mut self.process, 1, &offsets);
+                    active_item
+                        .held_entity
+                        .set_no_sway(&mut self.process, 0.0, &offsets);
+                    active_item
+                        .held_entity
+                        .set_spread(&mut self.process, 0.0, &offsets);
+                    if last_item_uid != active_item.uid
+                        && active_item.held_entity.recoil.instance > 0 as u64
+                    {
+                        last_item_uid = active_item.uid;
+                        active_item
+                            .held_entity
+                            .recoil
+                            .set_recoil(&mut self.process, 0.5);
+                    }
+                }
+            }
         }
     }
 }
